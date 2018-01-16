@@ -35,10 +35,25 @@ class Model():
         self.cell = cell = rnn.MultiRNNCell(cells, state_is_tuple=True)
 
         self.input_data = tf.placeholder(
-            tf.int32, [args.batch_size, args.seq_length])
+            tf.int32, [args.batch_size, args.seq_length], name="input_data")
         self.targets = tf.placeholder(
             tf.int32, [args.batch_size, args.seq_length])
-        self.initial_state = cell.zero_state(args.batch_size, tf.float32)
+
+        self.state_placeholder = tf.placeholder(
+            tf.float32, [args.num_layers, 2, args.batch_size, args.rnn_size], name="initial_state")
+
+        layer_states = tf.unstack(self.state_placeholder, axis=0)
+        self.initial_state = tuple(
+            tf.nn.rnn_cell.LSTMStateTuple(layer_states[idx][0], layer_states[idx][1])
+            for idx in range(args.num_layers)
+        )
+
+        def stack_state(zero_state_tuple):
+            return tf.stack([tf.stack((c, h)) for (c, h) in zero_state_tuple])
+
+        self.zero_state = tf.identity(
+            stack_state(self.cell.zero_state(args.batch_size, tf.float32)),
+            "zero_state")
 
         with tf.variable_scope('rnnlm'):
             softmax_w = tf.get_variable("softmax_w",
@@ -63,7 +78,6 @@ class Model():
         outputs, last_state = legacy_seq2seq.rnn_decoder(inputs, self.initial_state, cell, loop_function=loop if not training else None, scope='rnnlm')
         output = tf.reshape(tf.concat(outputs, 1), [-1, args.rnn_size])
 
-
         self.logits = tf.matmul(output, softmax_w) + softmax_b
         self.probs = tf.nn.softmax(self.logits)
         loss = legacy_seq2seq.sequence_loss_by_example(
@@ -72,7 +86,9 @@ class Model():
                 [tf.ones([args.batch_size * args.seq_length])])
         with tf.name_scope('cost'):
             self.cost = tf.reduce_sum(loss) / args.batch_size / args.seq_length
-        self.final_state = last_state
+
+        self.final_state = stack_state(last_state)
+
         self.lr = tf.Variable(0.0, trainable=False)
         tvars = tf.trainable_variables()
         grads, _ = tf.clip_by_global_norm(tf.gradients(self.cost, tvars),
@@ -86,12 +102,15 @@ class Model():
         tf.summary.histogram('loss', loss)
         tf.summary.scalar('train_loss', self.cost)
 
-    def sample(self, sess, chars, vocab, num=200, prime='The ', sampling_type=1):
-        state = sess.run(self.cell.zero_state(1, tf.float32))
+    def sample(self, sess, chars, vocab, num=200, prime='The ', sampling_type=1, until=None):
+        state = sess.run(self.zero_state)
         for char in prime[:-1]:
             x = np.zeros((1, 1))
             x[0, 0] = vocab[char]
-            feed = {self.input_data: x, self.initial_state: state}
+            feed = {
+                self.input_data: x,
+                self.state_placeholder: state
+            }
             [state] = sess.run([self.final_state], feed)
 
         def weighted_pick(weights):
@@ -104,7 +123,7 @@ class Model():
         for n in range(num):
             x = np.zeros((1, 1))
             x[0, 0] = vocab[char]
-            feed = {self.input_data: x, self.initial_state: state}
+            feed = {self.input_data: x, self.state_placeholder: state}
             [probs, state] = sess.run([self.probs, self.final_state], feed)
             p = probs[0]
 
@@ -119,6 +138,9 @@ class Model():
                 sample = weighted_pick(p)
 
             pred = chars[sample]
+            if pred == until:
+                break
             ret += pred
             char = pred
         return ret
+
