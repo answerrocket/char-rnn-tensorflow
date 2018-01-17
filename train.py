@@ -5,6 +5,7 @@ import argparse
 import time
 import os
 from six.moves import cPickle
+import sys
 
 from utils import TextLoader
 from model import Model
@@ -103,6 +104,8 @@ def train(args):
         # restore model
         if args.init_from is not None:
             saver.restore(sess, ckpt.model_checkpoint_path)
+
+        print("starting training session")
         for e in range(args.num_epochs):
             sess.run(tf.assign(model.lr,
                                args.learning_rate * (args.decay_rate ** e)))
@@ -121,10 +124,13 @@ def train(args):
                 writer.add_summary(summ, e * data_loader.num_batches + b)
 
                 end = time.time()
-                print("{}/{} (epoch {}), train_loss = {:.3f}, time/batch = {:.3f}"
-                      .format(e * data_loader.num_batches + b,
-                              args.num_epochs * data_loader.num_batches,
-                              e, train_loss, end - start))
+
+                sys.stdout.write("\r{}/{} (epoch {}), train_loss = {:.3f}, time/batch = {:.3f}"
+                                 .format(e * data_loader.num_batches + b,
+                                         args.num_epochs * data_loader.num_batches,
+                                         e, train_loss, end - start))
+                sys.stdout.flush()
+
                 if (e * data_loader.num_batches + b) % args.save_every == 0\
                         or (e == args.num_epochs-1 and
                             b == data_loader.num_batches-1):
@@ -132,7 +138,7 @@ def train(args):
                     checkpoint_path = os.path.join(args.save_dir, 'model.ckpt')
                     saver.save(sess, checkpoint_path,
                                global_step=e * data_loader.num_batches + b)
-                    print("model saved to {}".format(checkpoint_path))
+                    print("\nmodel saved to {}".format(checkpoint_path))
 
 
 if __name__ == '__main__':
