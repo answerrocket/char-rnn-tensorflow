@@ -1,4 +1,4 @@
-import codecs
+import tensorflow as tf
 import os
 import collections
 from six.moves import cPickle
@@ -6,7 +6,8 @@ import numpy as np
 
 
 class TextLoader():
-    def __init__(self, data_dir, batch_size, seq_length, encoding='utf-8'):
+    def __init__(self, session, data_dir, batch_size, seq_length, encoding='utf-8'):
+        self.session = session
         self.data_dir = data_dir
         self.batch_size = batch_size
         self.seq_length = seq_length
@@ -16,26 +17,52 @@ class TextLoader():
         vocab_file = os.path.join(data_dir, "vocab.pkl")
         tensor_file = os.path.join(data_dir, "data.npy")
 
-        if not (os.path.exists(vocab_file) and os.path.exists(tensor_file)):
+        if True or not (os.path.exists(vocab_file) and os.path.exists(tensor_file)):
             print("reading text file")
             self.preprocess(input_file, vocab_file, tensor_file)
         else:
             print("loading preprocessed files")
             self.load_preprocessed(vocab_file, tensor_file)
+            
         self.create_batches()
         self.reset_batch_pointer()
 
     def preprocess(self, input_file, vocab_file, tensor_file):
-        with codecs.open(input_file, "r", encoding=self.encoding) as f:
-            data = f.read()
-        counter = collections.Counter(data)
+        line_data = tf.data.TextLineDataset([input_file])
+
+        chars_data = line_data\
+            .map(lambda l: tf.string_split([l], '').values)
+
+        next_char_list = chars_data.make_one_shot_iterator().get_next()
+        counter = collections.Counter()
+
+        megacharlist = []
+
+        while True:
+            try:
+                next_chars = self.session.run(next_char_list)
+                counter.update(next_chars)
+
+                # hack?
+                megacharlist.extend(next_chars)
+                megacharlist.append('\n')
+                counter['\n'] += 1  # hack?
+
+            except tf.errors.OutOfRangeError:
+                break  # done
+
         count_pairs = sorted(counter.items(), key=lambda x: -x[1])
         self.chars, _ = zip(*count_pairs)
         self.vocab_size = len(self.chars)
         self.vocab = dict(zip(self.chars, range(len(self.chars))))
+
+        self.input_dataset = chars_data
+
         with open(vocab_file, 'wb') as f:
             cPickle.dump(self.chars, f)
-        self.tensor = np.array(list(map(self.vocab.get, data)))
+
+        # hack: still using concatenated tensor format
+        self.tensor = np.array(map(self.vocab.get, megacharlist))
         np.save(tensor_file, self.tensor)
 
     def load_preprocessed(self, vocab_file, tensor_file):
