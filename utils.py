@@ -23,7 +23,7 @@ class TextLoader():
         else:
             print("loading preprocessed files")
             self.load_preprocessed(vocab_file, tensor_file)
-            
+
         self.create_batches()
         self.reset_batch_pointer()
 
@@ -58,12 +58,8 @@ class TextLoader():
 
         self.input_dataset = chars_data
 
-        with open(vocab_file, 'wb') as f:
-            cPickle.dump(self.chars, f)
-
         # hack: still using concatenated tensor format
         self.tensor = np.array(map(self.vocab.get, megacharlist))
-        np.save(tensor_file, self.tensor)
 
     def load_preprocessed(self, vocab_file, tensor_file):
         with open(vocab_file, 'rb') as f:

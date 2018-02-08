@@ -1,6 +1,9 @@
 from __future__ import print_function
 import tensorflow as tf
 
+# for reading/writing to GCS
+from tensorflow.python.lib.io import file_io
+
 import argparse
 import time
 import os
@@ -84,11 +87,11 @@ def train(args):
             assert saved_chars==data_loader.chars, "Data and loaded model disagree on character set!"
             assert saved_vocab==data_loader.vocab, "Data and loaded model disagree on dictionary mappings!"
 
-        if not os.path.isdir(args.job_dir):
-            os.makedirs(args.job_dir)
-        with open(os.path.join(args.job_dir, 'config.pkl'), 'wb') as f:
+        # if not os.path.isdir(args.job_dir):
+        #     os.makedirs(args.job_dir)
+        with file_io.FileIO(os.path.join(args.job_dir, 'config.pkl'), 'wb') as f:
             cPickle.dump(args, f)
-        with open(os.path.join(args.job_dir, 'chars_vocab.pkl'), 'wb') as f:
+        with file_io.FileIO(os.path.join(args.job_dir, 'chars_vocab.pkl'), 'wb') as f:
             cPickle.dump((data_loader.chars, data_loader.vocab), f)
 
         model = Model(args)
